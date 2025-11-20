@@ -6,7 +6,8 @@ import torch
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from accelerate import Accelerator, DistributedDataParallelKwargs
-from utils.train_helper import update_ema, requires_grad
+from utils.train_helper import update_ema, requires_grad, rzprint
+from utils.data_utils import make_loader
 from copy import deepcopy
 from time import time
 import torch.distributed as dist
@@ -14,69 +15,7 @@ from fid import calc
 from PIL import Image
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-from streaming.base.format.mds.encodings import Encoding, _encodings
-from typing import Any
-import numpy as np
-from streaming import StreamingDataset
-from torch.utils.data import DataLoader
-
-class uint8(Encoding):
-    def encode(self, obj: Any) -> bytes:
-        return obj.tobytes()
-
-    def decode(self, data: bytes) -> Any:
-        x = np.frombuffer(data, np.uint8).astype(np.float32)
-        return (x / 255.0 - 0.5) * 24.0
-
-_encodings["uint8"] = uint8
-
-def make_loader(root, mode='ImageNetTrain-train', batch_size=32, 
-                num_workers=4, cache_dir=None, 
-                resampled=False, world_size=1, total_num=1281167, 
-                bufsize=1000, initial=100):
-    
-    # StreamingDataset configuration
-    dataset = StreamingDataset(
-        local=root,
-        remote=None, # We are using local files
-        split=None, 
-        shuffle=True,
-        batch_size=batch_size,
-        num_canonical_nodes=1, 
-    )
-    
-    def collate_fn(batch):
-        latents = []
-        labels = []
-        for item in batch:
-            # item['vae_output'] is already decoded by the custom uint8 decoder
-            # It is a numpy array, flattened. We need to reshape it.
-            # The example says: batch["vae_output"].reshape(-1, 4, 32, 32)
-            # But here we are processing item by item.
-            # So item['vae_output'] is a flat array for one sample.
-            # 4 * 32 * 32 = 4096.
-            
-            latent_np = item['vae_output']
-            latent = torch.from_numpy(latent_np).reshape(4, 32, 32)
-            latents.append(latent)
-            
-            # item['label'] is the class index
-            labels.append(int(item['label']))
-        
-        return torch.stack(latents), torch.tensor(labels)
-
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True
-    )
-            
-    return loader
-def rzprint(*args, **kwargs):
-    if not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0:
-        print(*args, **kwargs)
+import glob
 
 @hydra.main(config_path="configs", config_name="config")
 def train(cfg: DictConfig):
@@ -136,11 +75,8 @@ def train(cfg: DictConfig):
     rzprint(f"Total batch size: {total_batch_size}")
     loader = make_loader(
         cfg.dataset.train_path,
-        mode='train',
         batch_size=batch_size_per_device,
-        num_workers=data_config.num_workers,
-        resampled=False,
-        total_num=data_config.total_num
+        num_workers=data_config.num_workers
     )
     rzprint("Init data loader.")
     
@@ -157,7 +93,7 @@ def train(cfg: DictConfig):
             ##############################################################
             # TRAIN STEP
             ##############################################################
-            x = x.to(accelerator.device)
+            x = x.to(accelerator.device)*0.18215 # stabilityai/sdxl-vae scaling factor
             cond = cond.to(accelerator.device)
 
             with accelerator.autocast():

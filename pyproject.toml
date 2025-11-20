@@ -24,6 +24,7 @@ dependencies = [
     "setuptools",
     "lmdb>=1.7.5",
     "mosaicml-streaming",
+    "hf_transfer",
 ]
 
 [build-system]

@@ -9,14 +9,14 @@ dataset:
   num_classes: 1000
   resolution: 32
   num_channels: 4
-  train_path: /export/group/datasets/ILSVRC/imagenet256_latents_wds
+  train_path: ./vae_mds
   val_path: null
   ref_path: /export/scratch/ra63vex/MaskDiT/assets/fid_stats/VIRTUAL_imagenet256_labeled.npz
 
 train:
   general:
     class_drop_prob: 0.1
-    batch_size: 256
+    batch_size: 128
     max_epochs: 100000
     gradient_clipping_norm: null
 
@@ -67,4 +67,4 @@ enable_eval: True
 global_seed: 42
 save_ckpt: True
 load_ckpt: False
-log_wandb: True
+log_wandb: False

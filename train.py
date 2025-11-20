@@ -14,96 +14,65 @@ from fid import calc
 from PIL import Image
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-import glob
+from streaming.base.format.mds.encodings import Encoding, _encodings
+from typing import Any
 import numpy as np
-from itertools import islice
-import webdataset as wds
-import pickle
-import io
+from streaming import StreamingDataset
+from torch.utils.data import DataLoader
 
-warnings.filterwarnings("ignore", message="torch.utils._pytree._register_pytree_node is deprecated")
+class uint8(Encoding):
+    def encode(self, obj: Any) -> bytes:
+        return obj.tobytes()
 
+    def decode(self, data: bytes) -> Any:
+        x = np.frombuffer(data, np.uint8).astype(np.float32)
+        return (x / 255.0 - 0.5) * 24.0
 
-# WebDataset Helper Function
-def nodesplitter(src, group=None):
-    rank, world_size, worker, num_workers = wds.utils.pytorch_worker_info()
-    if world_size > 1:
-        for s in islice(src, rank, None, world_size):
-            yield s
-    else:
-        for s in src:
-            yield s
-
-def get_file_paths(directory, mode):
-    return [os.path.join(directory, file) for file in os.listdir(directory) if mode in file]
-
-def split_by_proc(data_list, global_rank, total_size):
-    '''
-    Evenly split the data_list into total_size parts and return the part indexed by global_rank.
-    '''
-    assert len(data_list) >= total_size
-    assert global_rank < total_size
-    return data_list[global_rank::total_size]
-
-def decode_data(item):
-    output = {}
-    
-    # Decode the latent numpy array
-    latent_array = np.load(io.BytesIO(item["latent.npy"]))
-    latent = torch.from_numpy(latent_array)
-    output['latent'] = latent
-    
-    # Decode the class label
-    label = int(item['cls'].decode('utf-8'))
-    output['label'] = label        
-    return output
+_encodings["uint8"] = uint8
 
 def make_loader(root, mode='ImageNetTrain-train', batch_size=32, 
                 num_workers=4, cache_dir=None, 
                 resampled=False, world_size=1, total_num=1281167, 
                 bufsize=1000, initial=100):
-    data_list = get_file_paths(root, mode)
-    print("Number of shards:", len(data_list))
-    num_batches_in_total = total_num // (batch_size * world_size)
     
-    if resampled:
-        repeat = True
-        splitter = nodesplitter
-    else:
-        repeat = False
-        splitter = nodesplitter
-
-    # Create the WebDataset pipeline and pass the flag to decode_data via a lambda
-    dataset = (
-        wds.WebDataset(
-            data_list, 
-            cache_dir=cache_dir,
-            repeat=repeat,
-            resampled=resampled, 
-            handler=wds.handlers.warn_and_stop, 
-            nodesplitter=splitter,
-            shardshuffle=True
-        )
-        .shuffle(bufsize, initial=initial)
-        .map(lambda item: decode_data(item), handler=wds.handlers.warn_and_stop)
+    # StreamingDataset configuration
+    dataset = StreamingDataset(
+        local=root,
+        remote=None, # We are using local files
+        split=None, 
+        shuffle=True,
+        batch_size=batch_size,
+        num_canonical_nodes=1, 
     )
     
-
-    dataset = dataset.to_tuple('latent', 'label')
-    
-    dataset = dataset.batched(batch_size, partial=False)
-    
-    loader = wds.WebLoader(
-        dataset, 
-        batch_size=None, 
-        num_workers=num_workers, 
-        shuffle=False, 
-        persistent_workers=True
-    )
-    
-    if resampled:
-        loader = loader.with_epoch(num_batches_in_total)
+    def collate_fn(batch):
+        latents = []
+        labels = []
+        for item in batch:
+            # item['vae_output'] is already decoded by the custom uint8 decoder
+            # It is a numpy array, flattened. We need to reshape it.
+            # The example says: batch["vae_output"].reshape(-1, 4, 32, 32)
+            # But here we are processing item by item.
+            # So item['vae_output'] is a flat array for one sample.
+            # 4 * 32 * 32 = 4096.
+            
+            latent_np = item['vae_output']
+            latent = torch.from_numpy(latent_np).reshape(4, 32, 32)
+            latents.append(latent)
+            
+            # item['label'] is the class index
+            labels.append(int(item['label']))
         
+        return torch.stack(latents), torch.tensor(labels)
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        pin_memory=True
+    )
+            
     return loader
 def rzprint(*args, **kwargs):
     if not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0:
@@ -204,7 +173,7 @@ def train(cfg: DictConfig):
             accelerator.backward(loss)
             optimizer.step()
             
-            update_ema(ema, model.module)
+            update_ema(ema, model)
             
             running_loss += loss.item()
             

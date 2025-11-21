@@ -1,5 +1,5 @@
 defaults:
-  - model: dit # or tread (both in dit.py)
+  - model: tread # or tread (both in dit.py)
 
 
 dataset:
@@ -11,7 +11,7 @@ dataset:
   num_channels: 4
   train_path: ./vae_mds
   val_path: null
-  ref_path: /export/scratch/ra63vex/MaskDiT/assets/fid_stats/VIRTUAL_imagenet256_labeled.npz
+  ref_path: /home/ubuntu/tread/assets/fid_stats/VIRTUAL_imagenet256_labeled.npz
 
 train:
   general:
@@ -50,10 +50,10 @@ train:
     discretization: null
     schedule: null
     scaling: null
-    inception_path: /export/scratch/ra63vex/MaskDiT/assets/inception-2015-12-05.pkl
+    inception_path: /home/ubuntu/tread/assets/inception-2015-12-05.pkl
 
 wandb:
-  project: tread_github_test
+  project: Logvar_tread
 
 results_dir: /export/scratch/ra63vex/results_tread
 run_name: tread_b
@@ -67,4 +67,4 @@ enable_eval: True
 global_seed: 42
 save_ckpt: True
 load_ckpt: False
-log_wandb: False
+log_wandb: True

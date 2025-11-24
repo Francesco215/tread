@@ -55,7 +55,7 @@ train:
 wandb:
   project: Logvar_tread
 
-results_dir: /export/scratch/ra63vex/results_tread
+results_dir: ./export/scratch/ra63vex/results_tread
 run_name: tread_b
 
 hydra:  

@@ -179,3 +179,8 @@ wandb/*
 
 *.log
 vae_mds/
+**.png
+**.lock
+**.pt
+**.pkl
+**.npz

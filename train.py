@@ -170,7 +170,7 @@ def train(cfg: DictConfig):
             if cfg.save_ckpt and step % cfg.train.eval.eval_interval == 0 and step > 0:
                 save_path = os.path.join(experiment_dir, f'step_{step:06d}.pt')
                 accelerator.wait_for_everyone()
-                unwrapped_model = accelerator.unwrap_model(model.module)
+                unwrapped_model = accelerator.unwrap_model(model)
                 unwrapped_ema = accelerator.unwrap_model(ema)
                 if accelerator.is_main_process:
                     checkpoint = {

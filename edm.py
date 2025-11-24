@@ -160,22 +160,24 @@ class EDMDiffusion(nn.Module):
             
             def recur_decode(z):
                 try:
-                    return vae.decode(z)
+                    z = z.to(torch.bfloat16)
+                    out = vae.decode(z)
+                    return out
                 except:
                     assert z.shape[2] % 2 == 0
                     z1, z2 = z.tensor_split(2)
-                    return torch.cat([recur_decode(z1), recur_decode(z2)])
+                    z1 = recur_decode(z1)
+                    z2 = recur_decode(z2)
+                    return z1+z2
             with torch.no_grad():
                 z = self.sampler_fn(net, latents.float(), class_labels.float(), randn_like=rnd.randn_like,
                             cfg_scale=cfg.cfg_scale, feat=feat, **sampler_kwargs).float()
                 images = recur_decode(z)
                 
-            images_np = images.cpu().numpy()
-            for seed, image_np in zip(batch_seeds, images_np):
+            #images are already a list of PIL.Image.Image mode = RGG size = 256x256, edit the code
+            # images_np = images.cpu().numpy()
+            for seed, image in zip(batch_seeds, images):
                 image_dir = os.path.join(outdir, f'{seed - seed % 1000:06d}') if cfg.subdirs else outdir
                 os.makedirs(image_dir, exist_ok=True)
                 image_path = os.path.join(image_dir, f'{seed:06d}.png')
-                if image_np.shape[2] == 1:
-                    PIL.Image.fromarray(image_np[:, :, 0], 'L').save(image_path)
-                else:
-                    PIL.Image.fromarray(image_np, 'RGB').save(image_path)         
+                image.save(image_path)

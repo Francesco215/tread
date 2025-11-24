@@ -16,6 +16,7 @@ from PIL import Image
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 import glob
+import numpy as np
 
 @hydra.main(config_path="configs", config_name="config")
 def train(cfg: DictConfig):
